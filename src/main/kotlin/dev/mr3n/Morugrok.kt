@@ -6,6 +6,7 @@ import dev.mr3n.model.Protocol
 import dev.mr3n.model.ws.CreateTunnelRequest
 import dev.mr3n.model.ws.PacketType
 import dev.mr3n.model.ws.WebSocketAuth
+import dev.mr3n.model.ws.WebSocketPacket
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
@@ -24,23 +25,26 @@ import io.ktor.websocket.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.SocketException
 import java.time.Duration
+import java.util.logging.Level
+import java.util.logging.Logger
 
 object Morugrok {
     private const val HOST = "rp.mr3n.dev"
-    suspend fun start(hostName: String, port: Int, publicPort: Int, name: String?, token: String) {
+    suspend fun start(hostName: String, port: Int, publicPort: Int, name: String?, token: String, logLevel: Level = Level.INFO) {
+        val logger = Logger.getLogger("MORUGROK,${name?:"${hostName}:${port}"}")
         val client = HttpClient(CIO) {
             install(HttpTimeout) {
-                requestTimeoutMillis = Duration.ofSeconds(30).toMillis()
+                requestTimeoutMillis = Duration.ofSeconds(120).toMillis()
             }
             install(ContentNegotiation) {
                 json()
             }
             install(WebSockets) {
-                pingInterval = Duration.ofSeconds(20).toMillis()
                 contentConverter = KotlinxWebsocketSerializationConverter(DefaultJson)
             }
         }
@@ -51,23 +55,24 @@ object Morugrok {
         }
         check(response.status.isSuccess()) { response.bodyAsText() }
         val conData: ConnectionInfo = response.body()
-        println(conData.token)
+        logger.config("コネクションの新規トークン: ${conData.token}")
         client.webSocket(host = HOST, port = 8080) {
             sendSerialized(WebSocketAuth(conData.user, conData.token))
             for (frame in incoming) {
                 when (frame) {
-                    is Frame.Text -> onWebSocketMessage(frame, hostName, port)
+                    is Frame.Text -> onWebSocketMessage(logger, frame, hostName, port, logLevel)
                     else -> {}
                 }
             }
         }
     }
 
-    private suspend fun onWebSocketMessage(frame: Frame.Text, hostName: String, port: Int) {
-        val type = DefaultJson.parseToJsonElement(frame.readText()).jsonObject["type"]?.jsonPrimitive?.content ?: return
+    private suspend fun WebSocketSession.onWebSocketMessage(logger: Logger, frame: Frame.Text, hostName: String, port: Int, logLevel: Level) {
+        val parsedJsonElement = DefaultJson.parseToJsonElement(frame.readText())
+        val type = parsedJsonElement.jsonObject["type"]?.jsonPrimitive?.content ?: return
         when (PacketType.valueOf(type)) {
             PacketType.CREATE_TUNNEL -> {
-                val data = DefaultJson.parseToJsonElement(frame.readText()).jsonObject["data"]?.jsonObject.toString()
+                val data = parsedJsonElement.jsonObject["data"]?.jsonObject.toString()
                 val createTunnelRequest = DefaultJson.decodeFromString<CreateTunnelRequest>(data)
                 val selectorManager = SelectorManager(Dispatchers.IO)
                 val serverSocket = aSocket(selectorManager).tcp().connect(HOST, createTunnelRequest.port)
@@ -76,7 +81,15 @@ object Morugrok {
                 val localConnection = localSocket.connection()
                 ConnectionSocket(localConnection, serverConnection)
                 ConnectionSocket(serverConnection, localConnection)
+                logger.finer("${createTunnelRequest.address}からの新規コネクションを確立しました。")
             }
+            PacketType.PING -> {
+                logger.finest("receive PING! from morugrok server.")
+                val json = DefaultJson.encodeToString(WebSocketPacket(PacketType.PONG, null))
+                send(json)
+                logger.finest("send PONG! to morugrok server.")
+            }
+            PacketType.PONG -> {}
         }
     }
 

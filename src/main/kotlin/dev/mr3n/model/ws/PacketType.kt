@@ -1,5 +1,7 @@
 package dev.mr3n.model.ws
 
 enum class PacketType {
-    CREATE_TUNNEL
+    CREATE_TUNNEL,
+    PING,
+    PONG
 }
