@@ -30,8 +30,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.SocketException
 import java.time.Duration
-import java.util.logging.ConsoleHandler
-import java.util.logging.Level
 import java.util.logging.Logger
 
 object Morugrok {
