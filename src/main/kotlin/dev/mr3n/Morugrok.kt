@@ -37,6 +37,7 @@ object Morugrok {
     private const val HOST = "rp.mr3n.dev"
     suspend fun start(hostName: String, port: Int, publicPort: Int, name: String?, token: String, logLevel: Level = Level.INFO) {
         val logger = Logger.getLogger("MORUGROK,${name?:"${hostName}:${port}"}")
+        logger.level = logLevel
         val client = HttpClient(CIO) {
             install(HttpTimeout) {
                 requestTimeoutMillis = Duration.ofSeconds(120).toMillis()
