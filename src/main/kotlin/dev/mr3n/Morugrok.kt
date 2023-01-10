@@ -30,14 +30,13 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.SocketException
 import java.time.Duration
+import java.util.logging.ConsoleHandler
 import java.util.logging.Level
 import java.util.logging.Logger
 
 object Morugrok {
     private const val HOST = "rp.mr3n.dev"
-    suspend fun start(hostName: String, port: Int, publicPort: Int, name: String?, token: String, logLevel: Level = Level.INFO) {
-        val logger = Logger.getLogger("MORUGROK,${name?:"${hostName}:${port}"}")
-        logger.level = logLevel
+    suspend fun start(hostName: String, port: Int, publicPort: Int, name: String?, token: String, logger: Logger = Logger.getLogger("MORUGROK,${name?:"${hostName}:${port}"}")) {
         val client = HttpClient(CIO) {
             install(HttpTimeout) {
                 requestTimeoutMillis = Duration.ofSeconds(120).toMillis()
@@ -61,14 +60,14 @@ object Morugrok {
             sendSerialized(WebSocketAuth(conData.user, conData.token))
             for (frame in incoming) {
                 when (frame) {
-                    is Frame.Text -> onWebSocketMessage(logger, frame, hostName, port, logLevel)
+                    is Frame.Text -> onWebSocketMessage(frame, hostName, port, logger)
                     else -> {}
                 }
             }
         }
     }
 
-    private suspend fun WebSocketSession.onWebSocketMessage(logger: Logger, frame: Frame.Text, hostName: String, port: Int, logLevel: Level) {
+    private suspend fun WebSocketSession.onWebSocketMessage(frame: Frame.Text, hostName: String, port: Int, logger: Logger) {
         val parsedJsonElement = DefaultJson.parseToJsonElement(frame.readText())
         val type = parsedJsonElement.jsonObject["type"]?.jsonPrimitive?.content ?: return
         when (PacketType.valueOf(type)) {
