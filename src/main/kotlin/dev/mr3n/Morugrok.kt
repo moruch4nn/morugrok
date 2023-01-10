@@ -76,13 +76,10 @@ object Morugrok {
                 val localConnection = localSocket.connection()
                 ConnectionSocket(localConnection, serverConnection)
                 ConnectionSocket(serverConnection, localConnection)
-                logger.info("${createTunnelRequest.address}からの新規コネクションを確立しました。")
             }
             PacketType.PING -> {
-                logger.info("receive PING! from morugrok server.")
                 val json = DefaultJson.encodeToString(EmptyPacket(PacketType.PONG))
                 send(json)
-                logger.info("send PONG! to morugrok server.")
             }
             PacketType.PONG -> {}
         }
