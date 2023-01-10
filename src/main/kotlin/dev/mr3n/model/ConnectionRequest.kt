@@ -5,4 +5,4 @@ import kotlinx.serialization.Serializable
 
 
 @Serializable
-data class ConnectionRequest(val port: Int, val protocol: Protocol, val filter: Filter = Filter(Filter.Type.BLACKLIST, listOf()))
+data class ConnectionRequest(val name: String?, val port: Int, val protocol: Protocol, val filter: Filter = Filter(Filter.Type.BLACKLIST, listOf()))
