@@ -3,10 +3,7 @@ package dev.mr3n
 import dev.mr3n.model.ConnectionInfo
 import dev.mr3n.model.ConnectionRequest
 import dev.mr3n.model.Protocol
-import dev.mr3n.model.ws.CreateTunnelRequest
-import dev.mr3n.model.ws.PacketType
-import dev.mr3n.model.ws.WebSocketAuth
-import dev.mr3n.model.ws.WebSocketPacket
+import dev.mr3n.model.ws.*
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
@@ -53,7 +50,7 @@ object Morugrok {
         }
         check(response.status.isSuccess()) { response.bodyAsText() }
         val conData: ConnectionInfo = response.body()
-        logger.config("コネクションの新規トークン: ${conData.token}")
+        logger.info("コネクションの新規トークン: ${conData.token}")
         client.webSocket(host = HOST, port = 8080) {
             sendSerialized(WebSocketAuth(conData.user, conData.token))
             for (frame in incoming) {
@@ -79,13 +76,13 @@ object Morugrok {
                 val localConnection = localSocket.connection()
                 ConnectionSocket(localConnection, serverConnection)
                 ConnectionSocket(serverConnection, localConnection)
-                logger.finer("${createTunnelRequest.address}からの新規コネクションを確立しました。")
+                logger.info("${createTunnelRequest.address}からの新規コネクションを確立しました。")
             }
             PacketType.PING -> {
-                logger.finest("receive PING! from morugrok server.")
-                val json = DefaultJson.encodeToString(WebSocketPacket(PacketType.PONG, null))
+                logger.info("receive PING! from morugrok server.")
+                val json = DefaultJson.encodeToString(EmptyPacket(PacketType.PONG))
                 send(json)
-                logger.finest("send PONG! to morugrok server.")
+                logger.info("send PONG! to morugrok server.")
             }
             PacketType.PONG -> {}
         }
