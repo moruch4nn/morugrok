@@ -115,7 +115,7 @@ object Morugrok {
                         outputStream.flush()
                     }
                 }
-            } catch (e: Exception) {
+            } finally {
                 this.close()
             }
         }
