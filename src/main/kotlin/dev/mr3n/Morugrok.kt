@@ -20,6 +20,7 @@ import io.ktor.serialization.kotlinx.json.*
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -48,6 +49,7 @@ object Morugrok {
             contentType(ContentType.Application.Json)
             setBody(ConnectionRequest(name, publicPort, Protocol.TCP))
         }
+        val selectorManager = SelectorManager(Dispatchers.IO)
         check(response.status.isSuccess()) { response.bodyAsText() }
         val conData: ConnectionInfo = response.body()
         logger.info("コネクションの新規トークン: ${conData.token}")
@@ -55,27 +57,30 @@ object Morugrok {
             sendSerialized(WebSocketAuth(conData.user, conData.token))
             for (frame in incoming) {
                 when (frame) {
-                    is Frame.Text -> onWebSocketMessage(frame, hostName, port, logger)
+                    is Frame.Text -> onWebSocketMessage(selectorManager, frame, hostName, port, logger)
                     else -> {}
                 }
             }
         }
     }
 
-    private suspend fun WebSocketSession.onWebSocketMessage(frame: Frame.Text, hostName: String, port: Int, logger: Logger) {
+    private suspend fun WebSocketSession.onWebSocketMessage(selectorManager: SelectorManager, frame: Frame.Text, hostName: String, port: Int, logger: Logger) {
         val parsedJsonElement = DefaultJson.parseToJsonElement(frame.readText())
         val type = parsedJsonElement.jsonObject["type"]?.jsonPrimitive?.content ?: return
         when (PacketType.valueOf(type)) {
             PacketType.CREATE_TUNNEL -> {
                 val data = parsedJsonElement.jsonObject["data"]?.jsonObject.toString()
                 val createTunnelRequest = DefaultJson.decodeFromString<CreateTunnelRequest>(data)
-                val selectorManager = SelectorManager(Dispatchers.IO)
                 val serverSocket = aSocket(selectorManager).tcp().connect(HOST, createTunnelRequest.port)
                 val localSocket = aSocket(selectorManager).tcp().connect(hostName, port)
                 val serverConnection = serverSocket.connection()
                 val localConnection = localSocket.connection()
-                ConnectionSocket(localConnection, serverConnection)
-                ConnectionSocket(serverConnection, localConnection)
+                ConnectionSocket(localConnection, serverConnection).onEnd {
+                    localSocket.close()
+                }
+                ConnectionSocket(serverConnection, localConnection).onEnd {
+                    serverSocket.close()
+                }
             }
             PacketType.PING -> {
                 val json = DefaultJson.encodeToString(EmptyPacket(PacketType.PONG))
@@ -89,18 +94,15 @@ object Morugrok {
         private var closed = false
 
         private fun close() {
-            try {
-                receive.socket.close()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            try {
-                send.socket.close()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            try { receive.socket.close() } catch (e: Exception) { e.printStackTrace() }
+            try { send.socket.close() } catch (e: Exception) { e.printStackTrace() }
+            endRunnable.forEach { it.invoke() }
             closed = true
         }
+
+        private val endRunnable = mutableListOf<()->Unit>()
+
+        fun onEnd(runnable: ()->Unit) { endRunnable.add(runnable) }
 
         override fun run() {
             try {
@@ -115,6 +117,8 @@ object Morugrok {
                         outputStream.flush()
                     }
                 }
+            } catch(_: Exception) {
+
             } finally {
                 this.close()
             }
