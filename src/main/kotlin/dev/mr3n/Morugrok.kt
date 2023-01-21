@@ -20,7 +20,6 @@ import io.ktor.serialization.kotlinx.json.*
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -32,17 +31,11 @@ import java.util.logging.Logger
 
 object Morugrok {
     private const val HOST = "rp.mr3n.dev"
-    suspend fun start(hostName: String, port: Int, publicPort: Int, name: String?, token: String, logger: Logger = Logger.getLogger("MORUGROK,${name?:"${hostName}:${port}"}")) {
+    suspend fun start(hostName: String, port: Int, publicPort: Int, name: String?, token: String, logger: Logger = Logger.getLogger("MORUGROK,${name?:"${hostName}:${port}"}"), onStart: WrappedMorugrokAPI.()->Unit = {}) {
         val client = HttpClient(CIO) {
-            install(HttpTimeout) {
-                requestTimeoutMillis = Duration.ofSeconds(120).toMillis()
-            }
-            install(ContentNegotiation) {
-                json()
-            }
-            install(WebSockets) {
-                contentConverter = KotlinxWebsocketSerializationConverter(DefaultJson)
-            }
+            install(HttpTimeout) { requestTimeoutMillis = Duration.ofSeconds(120).toMillis() }
+            install(ContentNegotiation) { json() }
+            install(WebSockets) { contentConverter = KotlinxWebsocketSerializationConverter(DefaultJson) }
         }
         val response = client.post("http://${HOST}:8080/con") {
             header(HttpHeaders.Authorization, "Bearer $token")
@@ -51,10 +44,11 @@ object Morugrok {
         }
         val selectorManager = SelectorManager(Dispatchers.IO)
         check(response.status.isSuccess()) { response.bodyAsText() }
-        val conData: ConnectionInfo = response.body()
-        logger.info("コネクションの新規トークン: ${conData.token}")
+        val conInfo: ConnectionInfo = response.body()
+        logger.info("コネクションの新規トークン: ${conInfo.token}")
+        onStart.invoke(WrappedMorugrokAPI(conInfo, client, HOST, token))
         client.webSocket(host = HOST, port = 8080) {
-            sendSerialized(WebSocketAuth(conData.user, conData.token))
+            sendSerialized(WebSocketAuth(conInfo.user, conInfo.token))
             for (frame in incoming) {
                 when (frame) {
                     is Frame.Text -> onWebSocketMessage(selectorManager, frame, hostName, port, logger)
